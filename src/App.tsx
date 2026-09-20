@@ -1,44 +1,107 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   LayoutDashboard, Users, BookOpen, Calendar, 
-  FileText, GraduationCap, TrendingUp, 
-  BrainCircuit, Database, Sun, Moon,
-  Search, Plus, Download, ArrowUpRight, CheckCircle2, 
-  XCircle, Clock, UploadCloud, Check, UserCheck
+  FileText, GraduationCap, TrendingUp, Database, 
+  Sun, Moon, Search, Plus, Download, ArrowUpRight, 
+  CheckCircle2, XCircle, Clock, UploadCloud, Check, 
+  UserCheck, ArrowLeft, Mail, Phone, MapPin, X
 } from 'lucide-react';
 import { 
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, 
   Tooltip, BarChart, Bar, Cell, PieChart, Pie 
 } from 'recharts';
-import kaggleStudents from './students.json';
+import rawKaggleStudents from './students.json';
+
+// Seeded deterministic generator based on student_id to prevent identical mock data
+function getStudentSeed(idStr: string) {
+  let hash = 0;
+  for (let i = 0; i < idStr.length; i++) {
+    hash = (hash << 5) - hash + idStr.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+}
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('Dashboard');
+  const [activeTab, setActiveTab] = useState<'Dashboard' | 'Students' | 'Academics' | 'Attendance' | 'Assignments' | 'Faculty' | 'Analytics' | 'Dataset Manager'>('Dashboard');
   const [darkMode, setDarkMode] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDept, setSelectedDept] = useState('All');
+  
+  // Selected student for Profile modal/view
+  const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
+  
+  // Tab-specific student selectors
+  const [academicStudentId, setAcademicStudentId] = useState<string>('');
+  const [attendanceStudentId, setAttendanceStudentId] = useState<string>('');
+  const [assignmentStudentId, setAssignmentStudentId] = useState<string>('');
 
-  // Kaggle JSON mapping
-  const formattedData = (kaggleStudents as any[]).map((item, index) => {
-    const rawAttendance = Number(item.Attendance ?? item.attendance) || 82;
-    const rawCgpa = Number(item.CGPA ?? item.cgpa ?? item.GPA ?? item.gpa) || 7.8;
-    const deptName = item.Department || item.dept || item.Branch || 'CSE';
-
-    return {
-      id: String(item.StudentID || item.id || index + 1),
-      roll: String(item.StudentID || item.RollNumber || item.roll || `R00${index + 1}`),
-      name: `${item.FirstName || ''} ${item.LastName || ''}`.trim() || item.Name || item.name || 'Student',
-      dept: deptName,
-      sem: Number(item.Semester || item.sem) || 5,
-      cgpa: rawCgpa,
-      attendance: rawAttendance,
-      risk: (rawAttendance < 75 || rawCgpa < 6.0) ? 'HIGH' : 'LOW',
-    };
+  // Add Student Modal State
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [newStudentForm, setNewStudentForm] = useState({
+    name: '',
+    dept: 'CSE',
+    sem: '5',
+    cgpa: '',
+    attendance: '',
+    email: '',
+    phone: '',
+    address: ''
   });
 
-  const [students] = useState(formattedData);
+  // Dataset manager custom uploaded dataset state
+  const [uploadedDatasetName, setUploadedDatasetName] = useState('students.json');
 
-  // Dynamic calculations from dataset
+  // Format and assign real unique values to all students
+  const initialStudents = useMemo(() => {
+    return (rawKaggleStudents as any[]).map((item, index) => {
+      const id = String(item.StudentID || item.student_id || item.id || `S${String(index + 1).padStart(5, '0')}`);
+      const seed = getStudentSeed(id);
+      
+      // Calculate individual attendance and CGPA if not present in dataset
+      const calcAttendance = item.Attendance !== undefined 
+        ? Number(item.Attendance) 
+        : 60 + (seed % 38); // Varies between 60% and 97% for each student
+      
+      const calcCgpa = item.CGPA !== undefined 
+        ? Number(item.CGPA) 
+        : Number((5.5 + ((seed % 42) / 10)).toFixed(2)); // Varies between 5.50 and 9.70
+
+      const firstName = item.FirstName || '';
+      const lastName = item.LastName || '';
+      const fullName = (firstName || lastName) ? `${firstName} ${lastName}`.trim() : (item.Name || item.name || `Student ${id}`);
+      const dept = item.Department || item.department || ['CSE', 'ECE', 'ISE', 'EEE', 'Architecture', 'Mechanical'][seed % 6];
+      const sem = Number(item.Semester || item.semester) || ((seed % 8) + 1);
+
+      return {
+        id,
+        roll: id,
+        name: fullName,
+        dept,
+        sem,
+        cgpa: calcCgpa,
+        attendance: calcAttendance,
+        risk: (calcAttendance < 75 || calcCgpa < 6.0) ? 'HIGH' : 'LOW',
+        email: item.Email || item.email || `${fullName.toLowerCase().replace(/\s+/g, '')}@institution.edu`,
+        phone: item.Phone || item.phone || `+91 ${9000000000 + (seed % 999999999)}`,
+        address: item.Address || item.address || 'Campus Residence, Hostel Block B',
+        isManual: false
+      };
+    });
+  }, []);
+
+  const [students, setStudents] = useState(initialStudents);
+
+  // Set default selected students on load
+  React.useEffect(() => {
+    if (students.length > 0 && !academicStudentId) {
+      setAcademicStudentId(students[0].id);
+      setAttendanceStudentId(students[0].id);
+      setAssignmentStudentId(students[0].id);
+    }
+  }, [students]);
+
+  // Dynamic calculations across dataset
   const totalCount = students.length;
   const avgAttendance = totalCount > 0 
     ? (students.reduce((acc, curr) => acc + curr.attendance, 0) / totalCount).toFixed(1) 
@@ -47,10 +110,122 @@ export default function App() {
     ? (students.reduce((acc, curr) => acc + curr.cgpa, 0) / totalCount).toFixed(2) 
     : '0';
 
-  // Dynamic unique departments
   const uniqueDepts = Array.from(new Set(students.map(s => s.dept)));
 
-  // Recharts Chart Data
+  // Generate Student-Specific Academic Data
+  const getStudentAcademics = (stId: string) => {
+    const student = students.find(s => s.id === stId);
+    if (!student) return null;
+    if (student.isManual && student.cgpa === 0) return { empty: true, student };
+
+    const seed = getStudentSeed(stId);
+    const subjectsMap: Record<string, string[]> = {
+      'CSE': ['Database Management', 'Operating Systems', 'Computer Networks', 'Design & Analysis of Algorithms', 'Cloud Computing'],
+      'ECE': ['Digital Signal Processing', 'VLSI Design', 'Microcontrollers', 'Analog Communication', 'Embedded Systems'],
+      'ISE': ['Information Security', 'Software Engineering', 'Big Data Analytics', 'Web Architecture', 'Machine Learning'],
+      'EEE': ['Power Electronics', 'Control Systems', 'Electric Drives', 'Renewable Energy', 'High Voltage Engg'],
+      'Architecture': ['Architectural Design', 'Building Construction', 'History of Architecture', 'Structural Mechanics', 'Urban Planning'],
+      'Mechanical': ['Thermodynamics', 'Fluid Mechanics', 'Kinematics of Machines', 'Manufacturing Tech', 'CAD/CAM']
+    };
+
+    const subjects = subjectsMap[student.dept] || subjectsMap['CSE'];
+    const records = subjects.map((sub, i) => {
+      const variance = (seed + i * 17) % 25;
+      const total = Math.min(98, Math.max(45, Math.round(student.cgpa * 9.5) + (variance - 10)));
+      const internal = Math.round(total * 0.3);
+      const external = total - internal;
+      let grade = 'A';
+      if (total >= 90) grade = 'O';
+      else if (total >= 80) grade = 'A+';
+      else if (total >= 70) grade = 'A';
+      else if (total >= 60) grade = 'B+';
+      else if (total >= 50) grade = 'B';
+      else grade = 'RA';
+
+      return {
+        subject: sub,
+        internal,
+        external,
+        total,
+        grade,
+        status: total >= 50 ? 'Pass' : 'Backlog'
+      };
+    });
+
+    return { empty: false, student, records };
+  };
+
+  // Generate Student-Specific Attendance Data
+  const getStudentAttendance = (stId: string) => {
+    const student = students.find(s => s.id === stId);
+    if (!student) return null;
+    if (student.isManual && student.attendance === 0) return { empty: true, student };
+
+    const seed = getStudentSeed(stId);
+    const totalClassesPerSub = 40 + (seed % 15);
+    const subjectsMap: Record<string, string[]> = {
+      'CSE': ['Database Management', 'Operating Systems', 'Computer Networks', 'Algorithms'],
+      'ECE': ['DSP', 'VLSI Design', 'Microcontrollers', 'Analog Comm'],
+      'ISE': ['Information Security', 'Software Engg', 'Big Data Analytics', 'Web Arch'],
+      'EEE': ['Power Electronics', 'Control Systems', 'Electric Drives', 'Renewables'],
+      'Architecture': ['Architectural Design', 'Building Const', 'Structures', 'Urban Planning'],
+      'Mechanical': ['Thermodynamics', 'Fluid Mechanics', 'Kinematics', 'Manufacturing']
+    };
+
+    const subs = subjectsMap[student.dept] || subjectsMap['CSE'];
+    const subjectList = subs.map((sub, i) => {
+      const delta = ((seed + i * 11) % 18) - 9;
+      const subPct = Math.min(100, Math.max(42, student.attendance + delta));
+      const attended = Math.round((subPct / 100) * totalClassesPerSub);
+      const absent = totalClassesPerSub - attended;
+
+      return {
+        subject: sub,
+        percentage: subPct,
+        totalClasses: totalClassesPerSub,
+        attended,
+        absent,
+        status: subPct >= 75 ? 'Regular' : 'Shortage Warning'
+      };
+    });
+
+    return { empty: false, student, subjectList };
+  };
+
+  // Generate Student-Specific Assignment Data
+  const getStudentAssignments = (stId: string) => {
+    const student = students.find(s => s.id === stId);
+    if (!student) return null;
+    if (student.isManual && student.cgpa === 0) return { empty: true, student };
+
+    const seed = getStudentSeed(stId);
+    const titles = [
+      'Problem Set 1: Theoretical Analysis',
+      'Case Study & Real-time Implementation',
+      'Mini Project Source Code & Documentation',
+      'Lab Practical Assignment Evaluation'
+    ];
+
+    const assignments = titles.map((title, i) => {
+      const isPending = ((seed + i * 7) % 5 === 0) && student.attendance < 75;
+      const isLate = ((seed + i * 3) % 4 === 0) && !isPending;
+      const maxMarks = 25;
+      const marks = isPending ? 0 : Math.min(25, Math.max(12, Math.round(student.cgpa * 2.3) + ((seed + i) % 4)));
+
+      return {
+        id: `ASG-${i + 1}`,
+        title,
+        status: isPending ? 'Pending' : (isLate ? 'Late Submission' : 'Submitted'),
+        submissionDate: isPending ? '-' : `2026-03-${10 + ((seed + i * 4) % 15)}`,
+        marks: isPending ? '-' : `${marks} / ${maxMarks}`,
+        grade: isPending ? '-' : (marks >= 22 ? 'O' : marks >= 18 ? 'A' : 'B')
+      };
+    });
+
+    return { empty: false, student, assignments };
+  };
+
+  // Charts configuration
   const trendData = [
     { sem: 'Sem 1', cgpa: 7.1 },
     { sem: 'Sem 2', cgpa: 7.4 },
@@ -68,8 +243,8 @@ export default function App() {
   const riskCount = students.filter(s => s.risk === 'HIGH').length;
 
   const riskDonutData = [
-    { name: 'Safe (Low)', value: safeCount, color: '#10b981' },
-    { name: 'Critical (High)', value: riskCount, color: '#f43f5e' },
+    { name: 'Safe', value: safeCount, color: '#10b981' },
+    { name: 'At Risk', value: riskCount, color: '#f43f5e' },
   ];
 
   const menuItems = [
@@ -80,7 +255,6 @@ export default function App() {
     { name: 'Assignments', icon: FileText },
     { name: 'Faculty', icon: GraduationCap },
     { name: 'Analytics', icon: TrendingUp },
-    { name: 'Prediction', icon: BrainCircuit },
     { name: 'Dataset Manager', icon: Database },
   ];
 
@@ -91,10 +265,106 @@ export default function App() {
     return matchesSearch && matchesDept;
   });
 
+  // Handle manual student addition
+  const handleAddStudentSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newStudentForm.name.trim()) {
+      alert('Please enter student name');
+      return;
+    }
+
+    const newId = `S${String(students.length + 1).padStart(5, '0')}`;
+    const cgpaVal = newStudentForm.cgpa ? parseFloat(newStudentForm.cgpa) : 0;
+    const attVal = newStudentForm.attendance ? parseInt(newStudentForm.attendance) : 0;
+
+    const newStudentObj = {
+      id: newId,
+      roll: newId,
+      name: newStudentForm.name.trim(),
+      dept: newStudentForm.dept,
+      sem: parseInt(newStudentForm.sem) || 1,
+      cgpa: cgpaVal,
+      attendance: attVal,
+      risk: (attVal > 0 && attVal < 75) || (cgpaVal > 0 && cgpaVal < 6.0) ? 'HIGH' : 'LOW' as 'HIGH' | 'LOW',
+      email: newStudentForm.email || `${newStudentForm.name.toLowerCase().replace(/\s+/g, '')}@institution.edu`,
+      phone: newStudentForm.phone || '+91 9876543210',
+      address: newStudentForm.address || 'Campus Hostel',
+      isManual: true
+    };
+
+    setStudents([newStudentObj, ...students]);
+    setIsAddModalOpen(false);
+    setNewStudentForm({
+      name: '',
+      dept: 'CSE',
+      sem: '5',
+      cgpa: '',
+      attendance: '',
+      email: '',
+      phone: '',
+      address: ''
+    });
+    alert(`Student ${newStudentObj.name} added successfully with ID: ${newId}`);
+  };
+
+  // CSV Reader for Dataset Manager
+  const handleDatasetFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const text = evt.target?.result as string;
+      const lines = text.split('\n').filter(l => l.trim() !== '');
+      if (lines.length <= 1) {
+        alert('Invalid or empty CSV file');
+        return;
+      }
+
+      const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+      const parsedStudents = lines.slice(1).map((line, idx) => {
+        const parts = line.split(',').map(p => p.trim());
+        const rowObj: Record<string, string> = {};
+        headers.forEach((h, i) => {
+          rowObj[h] = parts[i] || '';
+        });
+
+        const id = rowObj['studentid'] || rowObj['student_id'] || rowObj['roll'] || `S${String(idx + 1).padStart(5, '0')}`;
+        const name = rowObj['name'] || `${rowObj['firstname'] || ''} ${rowObj['lastname'] || ''}`.trim() || `Student ${id}`;
+        const dept = rowObj['department'] || rowObj['dept'] || 'CSE';
+        const sem = Number(rowObj['semester'] || rowObj['sem']) || 5;
+        const cgpa = Number(rowObj['cgpa'] || rowObj['gpa']) || 7.5;
+        const att = Number(rowObj['attendance']) || 80;
+
+        return {
+          id,
+          roll: id,
+          name,
+          dept,
+          sem,
+          cgpa,
+          attendance: att,
+          risk: (att < 75 || cgpa < 6.0) ? 'HIGH' : 'LOW' as 'HIGH' | 'LOW',
+          email: rowObj['email'] || `${name.toLowerCase().replace(/\s+/g, '')}@institution.edu`,
+          phone: rowObj['phone'] || '+91 9999988888',
+          address: rowObj['address'] || 'University Hostel Block A',
+          isManual: false
+        };
+      });
+
+      setStudents(parsedStudents);
+      setUploadedDatasetName(file.name);
+      alert(`Loaded ${parsedStudents.length} student records from ${file.name}`);
+    };
+    reader.readAsText(file);
+  };
+
+  const currentDetailStudent = students.find(s => s.id === selectedStudentId);
+
   return (
     <div className={`flex h-screen font-sans ${darkMode ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-800'}`}>
       
-      {/* 1. Left Sidebar */}
+      {/* 1. Sidebar */}
       <aside className={`w-64 border-r flex flex-col justify-between shrink-0 ${darkMode ? 'border-slate-800/80 bg-slate-900/60' : 'border-slate-200 bg-white'}`}>
         <div className="p-4">
           <div className="flex items-center gap-3 px-3 py-4 mb-4">
@@ -110,11 +380,14 @@ export default function App() {
           <nav className="space-y-1">
             {menuItems.map((item) => {
               const Icon = item.icon;
-              const isActive = activeTab === item.name;
+              const isActive = activeTab === item.name && !selectedStudentId;
               return (
                 <button
                   key={item.name}
-                  onClick={() => setActiveTab(item.name)}
+                  onClick={() => {
+                    setActiveTab(item.name as any);
+                    setSelectedStudentId(null);
+                  }}
                   className={`w-full flex items-center gap-3.5 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all ${
                     isActive 
                       ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/25' 
@@ -153,7 +426,9 @@ export default function App() {
           darkMode ? 'border-slate-800/80 bg-slate-900/40' : 'border-slate-200 bg-white'
         }`}>
           <div className="flex items-center gap-4">
-            <h1 className="text-xl font-bold tracking-tight">{activeTab}</h1>
+            <h1 className="text-xl font-bold tracking-tight">
+              {selectedStudentId ? 'Student Academic Profile' : activeTab}
+            </h1>
             <span className="text-xs px-2.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-medium">
               Academic Year 2026-27
             </span>
@@ -169,19 +444,186 @@ export default function App() {
           </div>
         </header>
 
-        {/* Dynamic Views */}
+        {/* Dynamic Pages Area */}
         <div className="flex-1 overflow-y-auto p-8 space-y-6">
 
-          {/* TAB 1: DASHBOARD */}
-          {activeTab === 'Dashboard' && (
+          {/* VIEW: SINGLE STUDENT DETAILED PROFILE (Triggered when any student row is clicked) */}
+          {selectedStudentId && currentDetailStudent ? (
             <div className="space-y-6">
-              {/* Glowing Metric Cards */}
+              <button 
+                onClick={() => setSelectedStudentId(null)}
+                className="flex items-center gap-2 text-xs font-semibold text-indigo-400 hover:text-indigo-300 transition-colors"
+              >
+                <ArrowLeft className="w-4 h-4" /> Back to Students Table
+              </button>
+
+              {/* Student Header Card */}
+              <div className={`p-6 rounded-2xl border ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div className="flex items-center gap-4">
+                    <div className="w-16 h-16 rounded-2xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 font-bold text-xl">
+                      {currentDetailStudent.name.charAt(0)}
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-3">
+                        <h2 className="text-xl font-bold">{currentDetailStudent.name}</h2>
+                        <span className="px-2.5 py-0.5 rounded-md bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-mono text-xs font-semibold">
+                          {currentDetailStudent.id}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-400 mt-1">
+                        Department of {currentDetailStudent.dept} • Semester {currentDetailStudent.sem}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-4">
+                    <div className="text-center px-4 py-2 rounded-xl bg-slate-950/40 border border-slate-800">
+                      <p className="text-[10px] text-slate-400">Current CGPA</p>
+                      <p className="text-lg font-bold text-indigo-400">{currentDetailStudent.cgpa || 'N/A'}</p>
+                    </div>
+                    <div className="text-center px-4 py-2 rounded-xl bg-slate-950/40 border border-slate-800">
+                      <p className="text-[10px] text-slate-400">Attendance</p>
+                      <p className={`text-lg font-bold ${currentDetailStudent.attendance < 75 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                        {currentDetailStudent.attendance}%
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6 pt-6 border-t border-slate-800 text-xs">
+                  <div className="flex items-center gap-2 text-slate-400">
+                    <Mail className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>{currentDetailStudent.email}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-slate-400">
+                    <Phone className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>{currentDetailStudent.phone}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-slate-400">
+                    <MapPin className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>{currentDetailStudent.address}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Individual Academic Grades */}
+              <div className={`p-6 rounded-2xl border ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+                <h3 className="font-bold text-sm mb-4">Academic & Semester Grade Card</h3>
+                {getStudentAcademics(currentDetailStudent.id)?.empty ? (
+                  <p className="text-xs text-slate-400 py-4">No academic records available for this newly added student.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="border-b border-slate-800 text-slate-400 pb-2">
+                        <tr>
+                          <th className="pb-3">Subject</th>
+                          <th className="pb-3">Internal (30)</th>
+                          <th className="pb-3">External (70)</th>
+                          <th className="pb-3">Total (100)</th>
+                          <th className="pb-3">Grade</th>
+                          <th className="pb-3">Result</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/40">
+                        {getStudentAcademics(currentDetailStudent.id)?.records?.map((rec, i) => (
+                          <tr key={i} className="h-10">
+                            <td className="font-medium">{rec.subject}</td>
+                            <td>{rec.internal}</td>
+                            <td>{rec.external}</td>
+                            <td className="font-bold">{rec.total}</td>
+                            <td><span className="px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 font-bold">{rec.grade}</span></td>
+                            <td>
+                              <span className={rec.status === 'Pass' ? 'text-emerald-400 font-semibold' : 'text-rose-400 font-semibold'}>
+                                {rec.status}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* Individual Attendance Breakdown */}
+              <div className={`p-6 rounded-2xl border ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+                <h3 className="font-bold text-sm mb-4">Subject-wise Attendance Metrics</h3>
+                {getStudentAttendance(currentDetailStudent.id)?.empty ? (
+                  <p className="text-xs text-slate-400 py-4">No attendance records available for this newly added student.</p>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    {getStudentAttendance(currentDetailStudent.id)?.subjectList?.map((att, i) => (
+                      <div key={i} className="p-4 rounded-xl bg-slate-950/40 border border-slate-800">
+                        <p className="text-xs font-semibold">{att.subject}</p>
+                        <h4 className="text-xl font-bold mt-2">{att.percentage}%</h4>
+                        <p className="text-[10px] text-slate-400 mt-1">
+                          {att.attended} Attended / {att.totalClasses} Total
+                        </p>
+                        <span className={`text-[10px] font-bold mt-2 block ${att.status.includes('Warning') ? 'text-rose-400' : 'text-emerald-400'}`}>
+                          {att.status}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Individual Assignments */}
+              <div className={`p-6 rounded-2xl border ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+                <h3 className="font-bold text-sm mb-4">Coursework Assignments & Submissions</h3>
+                {getStudentAssignments(currentDetailStudent.id)?.empty ? (
+                  <p className="text-xs text-slate-400 py-4">No assignments available for this newly added student.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="border-b border-slate-800 text-slate-400 pb-2">
+                        <tr>
+                          <th className="pb-3">Task Title</th>
+                          <th className="pb-3">Submission Status</th>
+                          <th className="pb-3">Submitted On</th>
+                          <th className="pb-3">Marks</th>
+                          <th className="pb-3">Grade</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/40">
+                        {getStudentAssignments(currentDetailStudent.id)?.assignments?.map((asg, i) => (
+                          <tr key={i} className="h-10">
+                            <td className="font-medium">{asg.title}</td>
+                            <td>
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                                asg.status === 'Submitted'
+                                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                                  : asg.status === 'Late Submission'
+                                    ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                                    : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
+                              }`}>
+                                {asg.status}
+                              </span>
+                            </td>
+                            <td>{asg.submissionDate}</td>
+                            <td className="font-bold">{asg.marks}</td>
+                            <td>{asg.grade}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+            </div>
+          ) : null}
+
+          {/* TAB 1: DASHBOARD */}
+          {!selectedStudentId && activeTab === 'Dashboard' && (
+            <div className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 {[
                   { label: 'Total Students', value: totalCount.toString(), desc: 'Loaded from dataset', color: 'from-blue-600 to-indigo-600', shadow: 'shadow-indigo-500/10' },
                   { label: 'Total Faculty', value: uniqueDepts.length.toString(), desc: 'Department Leads', color: 'from-violet-600 to-purple-600', shadow: 'shadow-purple-500/10' },
-                  { label: 'Average Attendance', value: `${avgAttendance}%`, desc: '75% Mandatory cutoff', color: 'from-emerald-500 to-teal-600', shadow: 'shadow-teal-500/10' },
-                  { label: 'Average CGPA', value: avgCgpa, desc: 'Overall student average', color: 'from-amber-500 to-orange-600', shadow: 'shadow-orange-500/10' },
+                  { label: 'Average Attendance', value: `${avgAttendance}%`, desc: '75% Mandatory Cutoff', color: 'from-emerald-500 to-teal-600', shadow: 'shadow-teal-500/10' },
+                  { label: 'Average CGPA', value: avgCgpa, desc: 'Overall Student Average', color: 'from-amber-500 to-orange-600', shadow: 'shadow-orange-500/10' },
                 ].map((stat, idx) => (
                   <div key={idx} className={`relative overflow-hidden p-5 rounded-2xl border backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 ${
                     darkMode ? 'bg-slate-900/70 border-slate-800/80' : 'bg-white border-slate-200'
@@ -200,16 +642,14 @@ export default function App() {
                 ))}
               </div>
 
-              {/* Main Visual Graphs Grid */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Area Chart: CGPA Growth */}
                 <div className={`lg:col-span-2 p-6 rounded-2xl border backdrop-blur-xl ${
-                  darkMode ? 'bg-slate-900/60 border-slate-800/80' : 'bg-white border-slate-200'
+                  darkMode ? 'bg-slate-900/60 border-slate-800/80 shadow-slate-950/40' : 'bg-white border-slate-200 shadow-sm'
                 } shadow-xl`}>
                   <div className="flex items-center justify-between mb-4">
                     <div>
                       <h3 className="text-sm font-bold tracking-tight">Institutional CGPA Growth Curve</h3>
-                      <p className="text-xs text-slate-400">Semester progression trend line</p>
+                      <p className="text-xs text-slate-400">Semester progression trend analysis</p>
                     </div>
                     <span className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
                       Realtime Forecast
@@ -233,13 +673,12 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Donut Chart: Risk Radar */}
                 <div className={`p-6 rounded-2xl border backdrop-blur-xl ${
                   darkMode ? 'bg-slate-900/60 border-slate-800/80' : 'bg-white border-slate-200'
                 } shadow-xl flex flex-col justify-between`}>
                   <div>
                     <h3 className="text-sm font-bold tracking-tight">Academic Safety Radar</h3>
-                    <p className="text-xs text-slate-400">AI prediction breakdown</p>
+                    <p className="text-xs text-slate-400">Risk status across total enrolled</p>
                   </div>
                   <div className="h-44 w-full my-auto flex items-center justify-center">
                     <ResponsiveContainer width="100%" height="100%">
@@ -266,12 +705,11 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Bar Chart: Distribution */}
               <div className={`p-6 rounded-2xl border backdrop-blur-xl ${
                 darkMode ? 'bg-slate-900/60 border-slate-800/80' : 'bg-white border-slate-200'
               } shadow-xl`}>
                 <h3 className="text-sm font-bold tracking-tight mb-1">Student Enrollment by Department</h3>
-                <p className="text-xs text-slate-400 mb-6">Distribution across academic departments</p>
+                <p className="text-xs text-slate-400 mb-6">Distribution across institution disciplines</p>
                 <div className="h-56 w-full">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={deptChartData}>
@@ -286,8 +724,8 @@ export default function App() {
             </div>
           )}
 
-          {/* TAB 2: STUDENTS */}
-          {activeTab === 'Students' && (
+          {/* TAB 2: STUDENTS (Clicking any row opens that student's complete profile) */}
+          {!selectedStudentId && activeTab === 'Students' && (
             <div className={`rounded-2xl border overflow-hidden ${darkMode ? 'bg-slate-900/80 border-slate-800' : 'bg-white border-slate-200'}`}>
               <div className="p-4 border-b border-slate-800/80 flex flex-wrap gap-4 items-center justify-between">
                 <div className="flex items-center gap-3 flex-1 min-w-[280px]">
@@ -312,7 +750,10 @@ export default function App() {
                     ))}
                   </select>
                 </div>
-                <button className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow-md shadow-indigo-600/20">
+                <button 
+                  onClick={() => setIsAddModalOpen(true)}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow-md shadow-indigo-600/20"
+                >
                   <Plus className="w-3.5 h-3.5" /> Add Student
                 </button>
               </div>
@@ -328,16 +769,21 @@ export default function App() {
                       <th className="p-4">CGPA</th>
                       <th className="p-4">Attendance</th>
                       <th className="p-4">Risk Status</th>
+                      <th className="p-4 text-right">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/50">
                     {filteredStudents.map((st) => (
-                      <tr key={st.id} className={darkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'}>
+                      <tr 
+                        key={st.id} 
+                        onClick={() => setSelectedStudentId(st.id)}
+                        className={`cursor-pointer transition-colors ${darkMode ? 'hover:bg-slate-800/60' : 'hover:bg-slate-100'}`}
+                      >
                         <td className="p-4 font-mono font-medium text-indigo-400">{st.roll}</td>
                         <td className="p-4 font-semibold">{st.name}</td>
                         <td className="p-4"><span className="px-2 py-0.5 rounded-md bg-slate-800 text-[11px]">{st.dept}</span></td>
                         <td className="p-4">Sem {st.sem}</td>
-                        <td className="p-4 font-bold">{st.cgpa}</td>
+                        <td className="p-4 font-bold">{st.cgpa || '-'}</td>
                         <td className="p-4">
                           <span className={st.attendance < 75 ? 'text-rose-400 font-bold' : 'text-emerald-400 font-medium'}>
                             {st.attendance}%
@@ -348,6 +794,11 @@ export default function App() {
                             {st.risk}
                           </span>
                         </td>
+                        <td className="p-4 text-right">
+                          <span className="text-indigo-400 hover:text-indigo-300 font-semibold text-xs underline">
+                            View Profile →
+                          </span>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -356,108 +807,231 @@ export default function App() {
             </div>
           )}
 
-          {/* TAB 3: ACADEMICS */}
-          {activeTab === 'Academics' && (
-            <div className={`p-6 rounded-2xl border ${darkMode ? 'bg-slate-900/80 border-slate-800' : 'bg-white border-slate-200'}`}>
-              <h3 className="text-base font-bold mb-4">Semester Exam Report & Grading Sheet</h3>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="border-b border-slate-800 text-slate-400">
-                    <tr>
-                      <th className="pb-3">Subject</th>
-                      <th className="pb-3">Internal (30)</th>
-                      <th className="pb-3">External (70)</th>
-                      <th className="pb-3">Total (100)</th>
-                      <th className="pb-3">Grade</th>
-                      <th className="pb-3">Result</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800/40">
-                    {[
-                      { sub: 'Database Management Systems (DBMS)', int: 26, ext: 64, tot: 90, grade: 'O', status: 'Pass' },
-                      { sub: 'Operating Systems (OS)', int: 22, ext: 58, tot: 80, grade: 'A+', status: 'Pass' },
-                      { sub: 'Computer Networks (CN)', int: 24, ext: 62, tot: 86, grade: 'A+', status: 'Pass' },
-                      { sub: 'Advanced Java Programming', int: 27, ext: 65, tot: 92, grade: 'O', status: 'Pass' },
-                    ].map((item, idx) => (
-                      <tr key={idx} className="h-12">
-                        <td className="font-medium">{item.sub}</td>
-                        <td>{item.int}</td>
-                        <td>{item.ext}</td>
-                        <td className="font-bold">{item.tot}</td>
-                        <td><span className="px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 font-bold">{item.grade}</span></td>
-                        <td><span className="text-emerald-400 font-semibold">{item.status}</span></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 4: ATTENDANCE */}
-          {activeTab === 'Attendance' && (
+          {/* TAB 3: ACADEMICS (Student-wise selector) */}
+          {!selectedStudentId && activeTab === 'Academics' && (
             <div className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                {[
-                  { sub: 'Database Systems (DBMS)', pct: '92%', status: 'Safe' },
-                  { sub: 'Operating Systems (OS)', pct: '84%', status: 'Safe' },
-                  { sub: 'Computer Networks (CN)', pct: '71%', status: 'Warning (<75%)' },
-                  { sub: 'Java Programming', pct: '88%', status: 'Safe' },
-                ].map((att, i) => (
-                  <div key={i} className={`p-4 rounded-xl border ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
-                    <p className="text-xs text-slate-400">{att.sub}</p>
-                    <h3 className="text-xl font-bold mt-2">{att.pct}</h3>
-                    <span className={`text-[10px] font-bold ${att.status.includes('Warning') ? 'text-rose-400' : 'text-emerald-400'}`}>{att.status}</span>
-                  </div>
-                ))}
-              </div>
-
-              <div className={`p-6 rounded-2xl border ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
-                <h3 className="text-sm font-bold mb-4">Monthly Attendance Log Calendar</h3>
-                <div className="grid grid-cols-7 gap-2 text-center text-xs">
-                  {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => <div key={d} className="font-bold text-slate-400">{d}</div>)}
-                  {Array.from({ length: 28 }).map((_, idx) => {
-                    const isAbsent = idx === 5 || idx === 18;
-                    return (
-                      <div key={idx} className={`p-2 rounded-lg border text-xs font-semibold ${
-                        isAbsent 
-                          ? 'bg-rose-500/20 border-rose-500/30 text-rose-300' 
-                          : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-300'
-                      }`}>
-                        Day {idx + 1}
-                      </div>
-                    );
-                  })}
+              {/* Student Selector Bar */}
+              <div className={`p-4 rounded-2xl border flex flex-wrap items-center justify-between gap-4 ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+                <div>
+                  <h3 className="font-bold text-sm">Select Student for Academic Grade Card</h3>
+                  <p className="text-xs text-slate-400">Filter grades, subject-wise scores and exam reports by individual student</p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <select 
+                    value={academicStudentId}
+                    onChange={(e) => setAcademicStudentId(e.target.value)}
+                    className={`px-3 py-2 rounded-xl border text-xs font-semibold outline-none ${darkMode ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-200 text-slate-700'}`}
+                  >
+                    {students.map(s => (
+                      <option key={s.id} value={s.id}>
+                        {s.roll} - {s.name} ({s.dept})
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
+
+              {/* Selected Student's Academic Record */}
+              {academicStudentId && (() => {
+                const data = getStudentAcademics(academicStudentId);
+                if (!data) return null;
+                if (data.empty) {
+                  return (
+                    <div className={`p-12 text-center rounded-2xl border ${darkMode ? 'bg-slate-900 border-slate-800 text-slate-400' : 'bg-white border-slate-200 text-slate-500'}`}>
+                      No academic records available for newly created student {data.student.name}.
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className={`p-6 rounded-2xl border ${darkMode ? 'bg-slate-900/80 border-slate-800' : 'bg-white border-slate-200'}`}>
+                    <div className="flex items-center justify-between mb-6 pb-4 border-b border-slate-800">
+                      <div>
+                        <h4 className="font-bold text-base">{data.student.name} ({data.student.roll})</h4>
+                        <p className="text-xs text-slate-400">Department of {data.student.dept} • Semester {data.student.sem}</p>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-xs text-slate-400">Current CGPA</span>
+                        <p className="text-2xl font-bold text-indigo-400">{data.student.cgpa}</p>
+                      </div>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead className="border-b border-slate-800 text-slate-400">
+                          <tr>
+                            <th className="pb-3">Subject Name</th>
+                            <th className="pb-3">Internal (30)</th>
+                            <th className="pb-3">External (70)</th>
+                            <th className="pb-3">Total (100)</th>
+                            <th className="pb-3">Grade</th>
+                            <th className="pb-3">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800/40">
+                          {data.records?.map((item, idx) => (
+                            <tr key={idx} className="h-12">
+                              <td className="font-medium">{item.subject}</td>
+                              <td>{item.internal}</td>
+                              <td>{item.external}</td>
+                              <td className="font-bold">{item.total}</td>
+                              <td><span className="px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 font-bold">{item.grade}</span></td>
+                              <td>
+                                <span className={item.status === 'Pass' ? 'text-emerald-400 font-semibold' : 'text-rose-400 font-semibold'}>
+                                  {item.status}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           )}
 
-          {/* TAB 5: ASSIGNMENTS */}
-          {activeTab === 'Assignments' && (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {[
-                { title: 'SQL Joins & Indexing Query Task', sub: 'DBMS', due: '2 Days Left', marks: '25 Marks', totalSub: '42/48' },
-                { title: 'Process Scheduling Algorithm in C', sub: 'OS', due: '5 Days Left', marks: '20 Marks', totalSub: '38/48' },
-                { title: 'Socket Programming Client-Server', sub: 'Java', due: 'Completed', marks: '30 Marks', totalSub: '48/48' },
-              ].map((asg, i) => (
-                <div key={i} className={`p-5 rounded-2xl border flex flex-col justify-between ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
-                  <div>
-                    <span className="px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-400 text-[10px] font-bold">{asg.sub}</span>
-                    <h4 className="font-bold text-sm mt-2">{asg.title}</h4>
-                    <p className="text-xs text-slate-400 mt-1 flex items-center gap-1"><Clock className="w-3.5 h-3.5"/> Due: {asg.due}</p>
-                  </div>
-                  <div className="mt-6 pt-4 border-t border-slate-800/80 flex items-center justify-between">
-                    <span className="text-xs font-semibold text-slate-400">Submissions: <b className="text-white">{asg.totalSub}</b></span>
-                    <button className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold">Grade</button>
-                  </div>
+          {/* TAB 4: ATTENDANCE (Student-wise selector) */}
+          {!selectedStudentId && activeTab === 'Attendance' && (
+            <div className="space-y-6">
+              <div className={`p-4 rounded-2xl border flex flex-wrap items-center justify-between gap-4 ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+                <div>
+                  <h3 className="font-bold text-sm">Select Student for Attendance Ledger</h3>
+                  <p className="text-xs text-slate-400">Detailed subject percentage, total classes, and absent logs</p>
                 </div>
-              ))}
+                <select 
+                  value={attendanceStudentId}
+                  onChange={(e) => setAttendanceStudentId(e.target.value)}
+                  className={`px-3 py-2 rounded-xl border text-xs font-semibold outline-none ${darkMode ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-200 text-slate-700'}`}
+                >
+                  {students.map(s => (
+                    <option key={s.id} value={s.id}>
+                      {s.roll} - {s.name} ({s.attendance}%)
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {attendanceStudentId && (() => {
+                const data = getStudentAttendance(attendanceStudentId);
+                if (!data) return null;
+                if (data.empty) {
+                  return (
+                    <div className={`p-12 text-center rounded-2xl border ${darkMode ? 'bg-slate-900 border-slate-800 text-slate-400' : 'bg-white border-slate-200 text-slate-500'}`}>
+                      No attendance records available for newly added student {data.student.name}.
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                      {data.subjectList?.map((att, i) => (
+                        <div key={i} className={`p-4 rounded-xl border ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+                          <p className="text-xs text-slate-400">{att.subject}</p>
+                          <h3 className="text-2xl font-bold mt-2">{att.percentage}%</h3>
+                          <p className="text-[11px] text-slate-500 mt-1">{att.attended} Present • {att.absent} Absent</p>
+                          <span className={`text-[10px] font-bold mt-2 block ${att.status.includes('Warning') ? 'text-rose-400' : 'text-emerald-400'}`}>
+                            {att.status}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className={`p-6 rounded-2xl border ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+                      <h3 className="text-sm font-bold mb-4">{data.student.name} - Monthly Attendance Grid (Day 1 to 28)</h3>
+                      <div className="grid grid-cols-7 gap-2 text-center text-xs">
+                        {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => <div key={d} className="font-bold text-slate-400">{d}</div>)}
+                        {Array.from({ length: 28 }).map((_, idx) => {
+                          const seed = getStudentSeed(data.student.id);
+                          const isAbsent = ((seed + idx) % 5 === 0) && data.student.attendance < 85;
+                          return (
+                            <div key={idx} className={`p-2.5 rounded-lg border text-xs font-semibold ${
+                              isAbsent 
+                                ? 'bg-rose-500/20 border-rose-500/30 text-rose-300' 
+                                : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-300'
+                            }`}>
+                              Day {idx + 1}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+
+          {/* TAB 5: ASSIGNMENTS (Student-wise selector) */}
+          {!selectedStudentId && activeTab === 'Assignments' && (
+            <div className="space-y-6">
+              <div className={`p-4 rounded-2xl border flex flex-wrap items-center justify-between gap-4 ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+                <div>
+                  <h3 className="font-bold text-sm">Select Student for Assigned Coursework</h3>
+                  <p className="text-xs text-slate-400">View individual deadlines, submission statuses, and scores</p>
+                </div>
+                <select 
+                  value={assignmentStudentId}
+                  onChange={(e) => setAssignmentStudentId(e.target.value)}
+                  className={`px-3 py-2 rounded-xl border text-xs font-semibold outline-none ${darkMode ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-200 text-slate-700'}`}
+                >
+                  {students.map(s => (
+                    <option key={s.id} value={s.id}>
+                      {s.roll} - {s.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {assignmentStudentId && (() => {
+                const data = getStudentAssignments(assignmentStudentId);
+                if (!data) return null;
+                if (data.empty) {
+                  return (
+                    <div className={`p-12 text-center rounded-2xl border ${darkMode ? 'bg-slate-900 border-slate-800 text-slate-400' : 'bg-white border-slate-200 text-slate-500'}`}>
+                      No assignments available for newly added student {data.student.name}.
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {data.assignments?.map((asg, i) => (
+                      <div key={i} className={`p-5 rounded-2xl border flex flex-col justify-between ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+                        <div>
+                          <div className="flex items-center justify-between">
+                            <span className="px-2.5 py-0.5 rounded bg-indigo-500/20 text-indigo-400 text-[11px] font-bold font-mono">{asg.id}</span>
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                              asg.status === 'Submitted'
+                                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                                : asg.status === 'Late Submission'
+                                  ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                                  : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
+                            }`}>
+                              {asg.status}
+                            </span>
+                          </div>
+                          <h4 className="font-bold text-sm mt-3">{asg.title}</h4>
+                          <p className="text-xs text-slate-400 mt-1 flex items-center gap-1">
+                            <Clock className="w-3.5 h-3.5 text-slate-500" /> Submitted on: {asg.submissionDate}
+                          </p>
+                        </div>
+                        <div className="mt-6 pt-4 border-t border-slate-800 flex items-center justify-between">
+                          <span className="text-xs font-semibold text-slate-400">Awarded Marks: <b className="text-white">{asg.marks}</b></span>
+                          <span className="px-2.5 py-1 rounded bg-slate-800 text-xs font-bold text-indigo-400">Grade: {asg.grade}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
             </div>
           )}
 
           {/* TAB 6: FACULTY */}
-          {activeTab === 'Faculty' && (
+          {!selectedStudentId && activeTab === 'Faculty' && (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {uniqueDepts.map((deptName, idx) => (
                 <div key={idx} className={`p-5 rounded-2xl border ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
@@ -482,7 +1056,7 @@ export default function App() {
           )}
 
           {/* TAB 7: ANALYTICS */}
-          {activeTab === 'Analytics' && (
+          {!selectedStudentId && activeTab === 'Analytics' && (
             <div className="space-y-6">
               <div className={`p-6 rounded-2xl border ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
                 <h3 className="font-bold text-sm mb-4">Departmental Average Performance Index</h3>
@@ -511,50 +1085,32 @@ export default function App() {
             </div>
           )}
 
-          {/* TAB 8: PREDICTION */}
-          {activeTab === 'Prediction' && (
-            <div className={`p-6 rounded-2xl border max-w-2xl ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
-              <h3 className="text-base font-bold mb-1 flex items-center gap-2">
-                <BrainCircuit className="w-5 h-5 text-indigo-400" />
-                Academic Risk Prediction Engine
-              </h3>
-              <p className="text-xs text-slate-400 mb-6">Automated risk assessment based on attendance and academic threshold.</p>
-
-              <div className="space-y-3">
-                {students.slice(0, 6).map((st) => (
-                  <div key={st.id} className="p-4 rounded-xl bg-slate-950/40 border border-slate-800 flex items-center justify-between">
-                    <div>
-                      <p className="font-semibold text-sm">{st.name} ({st.roll})</p>
-                      <p className="text-xs text-slate-500">Attendance: {st.attendance}% | CGPA: {st.cgpa} | Dept: {st.dept}</p>
-                    </div>
-                    <span className={`px-3 py-1 rounded-full text-xs font-bold border ${st.risk === 'LOW' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border-rose-500/20'}`}>
-                      {st.risk} RISK
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* TAB 9: DATASET MANAGER */}
-          {activeTab === 'Dataset Manager' && (
+          {/* TAB 8: DATASET MANAGER (Functional upload and preview) */}
+          {!selectedStudentId && activeTab === 'Dataset Manager' && (
             <div className="space-y-6">
               <div className={`p-8 rounded-2xl border text-center border-dashed ${darkMode ? 'border-slate-800 bg-slate-900/50' : 'border-slate-200 bg-white'}`}>
                 <UploadCloud className="w-10 h-10 mx-auto text-indigo-400 mb-3" />
-                <h4 className="font-bold text-sm">Upload New Dataset File (CSV / JSON)</h4>
-                <p className="text-xs text-slate-400 mt-1 mb-4">Support for students.csv, marks.csv, and attendance logs</p>
-                <button className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold">
-                  Browse Files
-                </button>
+                <h4 className="font-bold text-sm">Upload New Dataset File (.csv / .json)</h4>
+                <p className="text-xs text-slate-400 mt-1 mb-4">
+                  Upload any Kaggle student dataset with columns: student_id, name, department, semester, cgpa, attendance
+                </p>
+                <label className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold cursor-pointer inline-block">
+                  Browse & Replace Dataset
+                  <input 
+                    type="file" 
+                    accept=".csv,.json" 
+                    className="hidden" 
+                    onChange={handleDatasetFileUpload}
+                  />
+                </label>
               </div>
 
               <div className={`p-6 rounded-2xl border ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
                 <h4 className="font-bold text-sm mb-4">Active System Datasets</h4>
                 <div className="space-y-2">
                   {[
-                    { name: 'students.json', records: `${totalCount} records`, status: 'Parsed & Loaded' },
-                    { name: 'exams_sem5.csv', records: '48 records', status: 'Active' },
-                    { name: 'faculty_directory.csv', records: `${uniqueDepts.length} leads`, status: 'Active' },
+                    { name: uploadedDatasetName, records: `${totalCount} records`, status: 'Loaded & Live in ERP' },
+                    { name: 'faculty_directory.csv', records: `${uniqueDepts.length} leads`, status: 'Connected' },
                   ].map((ds, i) => (
                     <div key={i} className="flex items-center justify-between p-3 rounded-xl bg-slate-950/40 border border-slate-800 text-xs">
                       <span className="font-mono font-medium">{ds.name}</span>
@@ -569,6 +1125,115 @@ export default function App() {
 
         </div>
       </main>
+
+      {/* 3. ADD STUDENT MODAL FORM */}
+      {isAddModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className={`w-full max-w-lg rounded-2xl border p-6 shadow-2xl ${darkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-800'}`}>
+            <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-800">
+              <h3 className="font-bold text-base">Add New Student</h3>
+              <button onClick={() => setIsAddModalOpen(false)} className="text-slate-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddStudentSubmit} className="space-y-3 text-xs">
+              <div>
+                <label className="block text-slate-400 mb-1">Student Full Name *</label>
+                <input 
+                  type="text" 
+                  required
+                  placeholder="e.g. Donna Hensley" 
+                  className={`w-full px-3 py-2 rounded-xl border outline-none ${darkMode ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}
+                  value={newStudentForm.name}
+                  onChange={(e) => setNewStudentForm({ ...newStudentForm, name: e.target.value })}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-400 mb-1">Department</label>
+                  <select 
+                    className={`w-full px-3 py-2 rounded-xl border outline-none ${darkMode ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}
+                    value={newStudentForm.dept}
+                    onChange={(e) => setNewStudentForm({ ...newStudentForm, dept: e.target.value })}
+                  >
+                    <option value="CSE">CSE</option>
+                    <option value="ECE">ECE</option>
+                    <option value="ISE">ISE</option>
+                    <option value="EEE">EEE</option>
+                    <option value="Architecture">Architecture</option>
+                    <option value="Mechanical">Mechanical</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-slate-400 mb-1">Semester</label>
+                  <input 
+                    type="number" 
+                    min="1" 
+                    max="8" 
+                    className={`w-full px-3 py-2 rounded-xl border outline-none ${darkMode ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}
+                    value={newStudentForm.sem}
+                    onChange={(e) => setNewStudentForm({ ...newStudentForm, sem: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-400 mb-1">Initial CGPA (Leave empty if none)</label>
+                  <input 
+                    type="number" 
+                    step="0.01" 
+                    placeholder="e.g. 8.2"
+                    className={`w-full px-3 py-2 rounded-xl border outline-none ${darkMode ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}
+                    value={newStudentForm.cgpa}
+                    onChange={(e) => setNewStudentForm({ ...newStudentForm, cgpa: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-400 mb-1">Initial Attendance % (Optional)</label>
+                  <input 
+                    type="number" 
+                    placeholder="e.g. 85"
+                    className={`w-full px-3 py-2 rounded-xl border outline-none ${darkMode ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}
+                    value={newStudentForm.attendance}
+                    onChange={(e) => setNewStudentForm({ ...newStudentForm, attendance: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1">Email Address</label>
+                <input 
+                  type="email" 
+                  placeholder="student@institution.edu"
+                  className={`w-full px-3 py-2 rounded-xl border outline-none ${darkMode ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}
+                  value={newStudentForm.email}
+                  onChange={(e) => setNewStudentForm({ ...newStudentForm, email: e.target.value })}
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-4">
+                <button 
+                  type="button" 
+                  onClick={() => setIsAddModalOpen(false)}
+                  className="px-4 py-2 rounded-xl text-slate-400 hover:text-white"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit" 
+                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-xl"
+                >
+                  Save Student
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

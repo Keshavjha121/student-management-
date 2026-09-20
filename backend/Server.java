@@ -13,7 +13,6 @@ import java.util.List;
 
 public class Server {
 
-    // In-memory dummy students list for initial setup
     static class Student {
         String id;
         String rollNo;
@@ -45,51 +44,23 @@ public class Server {
 
     public static void main(String[] args) throws IOException {
         int port = 8080;
-
-        // Sample initial records
-        studentList.add(new Student("1", "R001", "Prafull Gupta", "CSE", 5, 8.73, 86));
-        studentList.add(new Student("2", "R002", "Aman Sharma", "ISE", 4, 7.90, 78));
-        studentList.add(new Student("3", "R003", "Pooja Verma", "ECE", 6, 8.20, 92));
-
         HttpServer server = HttpServer.create(new InetSocketAddress(port), 0);
 
-        // 1. Dashboard Metrics API
-        server.createContext("/api/dashboard", new HttpHandler() {
-            @Override
-            public void handle(HttpExchange exchange) throws IOException {
-                handleCORS(exchange);
-                if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
-                    sendResponse(exchange, 204, "");
-                    return;
-                }
-
-                String json = "{"
-                    + "\"totalStudents\": 1248,"
-                    + "\"totalFaculty\": 84,"
-                    + "\"totalCourses\": 12,"
-                    + "\"totalSubjects\": 48,"
-                    + "\"avgCgpa\": 7.85,"
-                    + "\"avgAttendance\": 84.2,"
-                    + "\"passPercentage\": 91.5"
-                    + "}";
-
-                sendResponse(exchange, 200, json);
-            }
-        });
-
-        // 2. Students List & Add Student API
+        // API Context Handler
         server.createContext("/api/students", new HttpHandler() {
             @Override
             public void handle(HttpExchange exchange) throws IOException {
                 handleCORS(exchange);
                 String method = exchange.getRequestMethod();
+                String path = exchange.getRequestURI().getPath();
 
                 if ("OPTIONS".equalsIgnoreCase(method)) {
                     sendResponse(exchange, 204, "");
                     return;
                 }
 
-                if ("GET".equalsIgnoreCase(method)) {
+                // GET /api/students
+                if ("GET".equalsIgnoreCase(method) && path.equals("/api/students")) {
                     StringBuilder sb = new StringBuilder("[");
                     for (int i = 0; i < studentList.size(); i++) {
                         sb.append(studentList.get(i).toJson());
@@ -97,7 +68,11 @@ public class Server {
                     }
                     sb.append("]");
                     sendResponse(exchange, 200, sb.toString());
-                } else if ("POST".equalsIgnoreCase(method)) {
+                    return;
+                }
+
+                // POST /api/students
+                if ("POST".equalsIgnoreCase(method)) {
                     InputStreamReader isr = new InputStreamReader(exchange.getRequestBody(), StandardCharsets.UTF_8);
                     BufferedReader br = new BufferedReader(isr);
                     StringBuilder body = new StringBuilder();
@@ -105,43 +80,35 @@ public class Server {
                     while ((line = br.readLine()) != null) {
                         body.append(line);
                     }
-
-                    // Simple auto-add dummy entry upon request
-                    String newId = String.valueOf(studentList.size() + 1);
-                    studentList.add(new Student(newId, "R00" + newId, "New Student", "CSE", 1, 7.50, 85));
-
-                    sendResponse(exchange, 201, "{\"message\":\"Student added successfully\"}");
-                } else {
-                    sendResponse(exchange, 405, "Method Not Allowed");
-                }
-            }
-        });
-
-        // 3. Academic Risk Prediction API
-        server.createContext("/api/prediction", new HttpHandler() {
-            @Override
-            public void handle(HttpExchange exchange) throws IOException {
-                handleCORS(exchange);
-                if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
-                    sendResponse(exchange, 204, "");
+                    sendResponse(exchange, 201, "{\"message\":\"Student synced successfully\"}");
                     return;
                 }
 
-                // Returns ML prediction weights for student risk assessment
-                String json = "{"
-                    + "\"studentId\": \"R001\","
-                    + "\"attendance\": 84,"
-                    + "\"previousSgpa\": 8.2,"
-                    + "\"assignmentRate\": 92,"
-                    + "\"currentAverage\": 81,"
-                    + "\"riskLevel\": \"LOW\""
-                    + "}";
+                // Single student query /api/students/{id}
+                if ("GET".equalsIgnoreCase(method) && path.startsWith("/api/students/")) {
+                    String subPath = path.substring("/api/students/".length());
+                    String[] parts = subPath.split("/");
+                    String studentId = parts[0];
 
-                sendResponse(exchange, 200, json);
+                    if (parts.length == 1) {
+                        sendResponse(exchange, 200, "{\"studentId\":\"" + studentId + "\", \"status\":\"active\"}");
+                    } else if (parts.length == 2 && parts[1].equals("academics")) {
+                        sendResponse(exchange, 200, "{\"studentId\":\"" + studentId + "\", \"records\":[]}");
+                    } else if (parts.length == 2 && parts[1].equals("attendance")) {
+                        sendResponse(exchange, 200, "{\"studentId\":\"" + studentId + "\", \"attendance\":[]}");
+                    } else if (parts.length == 2 && parts[1].equals("assignments")) {
+                        sendResponse(exchange, 200, "{\"studentId\":\"" + studentId + "\", \"assignments\":[]}");
+                    } else {
+                        sendResponse(exchange, 404, "{\"error\":\"Not Found\"}");
+                    }
+                    return;
+                }
+
+                sendResponse(exchange, 405, "Method Not Allowed");
             }
         });
 
-        System.out.println("Java ERP Server running at: http://localhost:" + port);
+        System.out.println("Java ERP Student API Server running at http://localhost:" + port);
         server.start();
     }
 
