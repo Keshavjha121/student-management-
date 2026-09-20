@@ -1,237 +1,162 @@
-import com.sun.net.httpserver.HttpServer;
-import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpHandler;
+import com.sun.net.httpserver.HttpServer;
 
+import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
-import java.net.URI;
 import java.nio.charset.StandardCharsets;
-import java.util.List;
 import java.util.ArrayList;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.Executors;
+import java.util.List;
 
-/**
- * Standalone RESTful HTTP server using only the Java standard library.
- * Stores students in a thread-safe in-memory map with auto-incrementing IDs.
- */
 public class Server {
 
-    private static final ConcurrentHashMap<Integer, Student> store = new ConcurrentHashMap<>();
-    private static final AtomicInteger idCounter = new AtomicInteger(0);
+    // In-memory dummy students list for initial setup
+    static class Student {
+        String id;
+        String rollNo;
+        String name;
+        String department;
+        int semester;
+        double cgpa;
+        int attendance;
+
+        Student(String id, String rollNo, String name, String department, int semester, double cgpa, int attendance) {
+            this.id = id;
+            this.rollNo = rollNo;
+            this.name = name;
+            this.department = department;
+            this.semester = semester;
+            this.cgpa = cgpa;
+            this.attendance = attendance;
+        }
+
+        String toJson() {
+            return String.format(
+                "{\"id\":\"%s\",\"rollNo\":\"%s\",\"name\":\"%s\",\"department\":\"%s\",\"semester\":%d,\"cgpa\":%.2f,\"attendance\":%d}",
+                id, rollNo, name, department, semester, cgpa, attendance
+            );
+        }
+    }
+
+    private static final List<Student> studentList = new ArrayList<>();
 
     public static void main(String[] args) throws IOException {
-        // Pre-populate sample students
-        addStudent(new Student(0, "Alice Johnson", "alice@example.com", "R001", "Computer Science"));
-        addStudent(new Student(0, "Bob Smith", "bob@example.com", "R002", "Mathematics"));
-        addStudent(new Student(0, "Charlie Brown", "charlie@example.com", "R003", "Physics"));
+        int port = 8080;
 
-        HttpServer server = HttpServer.create(new InetSocketAddress(8080), 0);
-        server.createContext("/api/students", new StudentHandler());
-        server.setExecutor(Executors.newFixedThreadPool(10));
-        server.start();
-        System.out.println("Server started on http://localhost:8080");
-        System.out.println("Endpoints:");
-        System.out.println("  GET    /api/students          - list all students");
-        System.out.println("  GET    /api/students?id=1     - get a single student");
-        System.out.println("  POST   /api/students          - create a student");
-        System.out.println("  PUT    /api/students?id=1     - update a student");
-        System.out.println("  DELETE /api/students?id=1     - delete a student");
-    }
+        // Sample initial records
+        studentList.add(new Student("1", "R001", "Prafull Gupta", "CSE", 5, 8.73, 86));
+        studentList.add(new Student("2", "R002", "Aman Sharma", "ISE", 4, 7.90, 78));
+        studentList.add(new Student("3", "R003", "Pooja Verma", "ECE", 6, 8.20, 92));
 
-    /**
-     * Add a student to the store, assigning the next auto-incremented ID.
-     */
-    private static Student addStudent(Student s) {
-        int id = idCounter.incrementAndGet();
-        s.setId(id);
-        store.put(id, s);
-        return s;
-    }
+        HttpServer server = HttpServer.create(new InetSocketAddress(port), 0);
 
-    /**
-     * Convert all students in the store to a JSON array string.
-     */
-    private static String allStudentsJson() {
-        List<Student> list = new ArrayList<>(store.values());
-        list.sort((a, b) -> Integer.compare(a.getId(), b.getId()));
-        StringBuilder sb = new StringBuilder("[");
-        for (int i = 0; i < list.size(); i++) {
-            sb.append(list.get(i).toJson());
-            if (i < list.size() - 1) sb.append(",");
-        }
-        sb.append("]");
-        return sb.toString();
-    }
+        // 1. Dashboard Metrics API
+        server.createContext("/api/dashboard", new HttpHandler() {
+            @Override
+            public void handle(HttpExchange exchange) throws IOException {
+                handleCORS(exchange);
+                if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
+                    sendResponse(exchange, 204, "");
+                    return;
+                }
 
-    /**
-     * Parse an integer query parameter from the request URI.
-     */
-    private static Integer parseIdFromQuery(URI uri) {
-        String query = uri.getQuery();
-        if (query == null || query.isEmpty()) return null;
-        for (String pair : query.split("&")) {
-            String[] kv = pair.split("=", 2);
-            if (kv.length == 2 && kv[0].equals("id")) {
-                try {
-                    return Integer.parseInt(kv[1]);
-                } catch (NumberFormatException e) {
-                    return null;
+                String json = "{"
+                    + "\"totalStudents\": 1248,"
+                    + "\"totalFaculty\": 84,"
+                    + "\"totalCourses\": 12,"
+                    + "\"totalSubjects\": 48,"
+                    + "\"avgCgpa\": 7.85,"
+                    + "\"avgAttendance\": 84.2,"
+                    + "\"passPercentage\": 91.5"
+                    + "}";
+
+                sendResponse(exchange, 200, json);
+            }
+        });
+
+        // 2. Students List & Add Student API
+        server.createContext("/api/students", new HttpHandler() {
+            @Override
+            public void handle(HttpExchange exchange) throws IOException {
+                handleCORS(exchange);
+                String method = exchange.getRequestMethod();
+
+                if ("OPTIONS".equalsIgnoreCase(method)) {
+                    sendResponse(exchange, 204, "");
+                    return;
+                }
+
+                if ("GET".equalsIgnoreCase(method)) {
+                    StringBuilder sb = new StringBuilder("[");
+                    for (int i = 0; i < studentList.size(); i++) {
+                        sb.append(studentList.get(i).toJson());
+                        if (i < studentList.size() - 1) sb.append(",");
+                    }
+                    sb.append("]");
+                    sendResponse(exchange, 200, sb.toString());
+                } else if ("POST".equalsIgnoreCase(method)) {
+                    InputStreamReader isr = new InputStreamReader(exchange.getRequestBody(), StandardCharsets.UTF_8);
+                    BufferedReader br = new BufferedReader(isr);
+                    StringBuilder body = new StringBuilder();
+                    String line;
+                    while ((line = br.readLine()) != null) {
+                        body.append(line);
+                    }
+
+                    // Simple auto-add dummy entry upon request
+                    String newId = String.valueOf(studentList.size() + 1);
+                    studentList.add(new Student(newId, "R00" + newId, "New Student", "CSE", 1, 7.50, 85));
+
+                    sendResponse(exchange, 201, "{\"message\":\"Student added successfully\"}");
+                } else {
+                    sendResponse(exchange, 405, "Method Not Allowed");
                 }
             }
-        }
-        return null;
+        });
+
+        // 3. Academic Risk Prediction API
+        server.createContext("/api/prediction", new HttpHandler() {
+            @Override
+            public void handle(HttpExchange exchange) throws IOException {
+                handleCORS(exchange);
+                if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
+                    sendResponse(exchange, 204, "");
+                    return;
+                }
+
+                // Returns ML prediction weights for student risk assessment
+                String json = "{"
+                    + "\"studentId\": \"R001\","
+                    + "\"attendance\": 84,"
+                    + "\"previousSgpa\": 8.2,"
+                    + "\"assignmentRate\": 92,"
+                    + "\"currentAverage\": 81,"
+                    + "\"riskLevel\": \"LOW\""
+                    + "}";
+
+                sendResponse(exchange, 200, json);
+            }
+        });
+
+        System.out.println("Java ERP Server running at: http://localhost:" + port);
+        server.start();
     }
 
-    /**
-     * Read the entire request body as a UTF-8 string.
-     */
-    private static String readBody(HttpExchange exchange) throws IOException {
-        InputStream is = exchange.getRequestBody();
-        byte[] buffer = new byte[4096];
-        int bytesRead;
-        java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
-        while ((bytesRead = is.read(buffer)) != -1) {
-            baos.write(buffer, 0, bytesRead);
-        }
-        is.close();
-        return baos.toString(StandardCharsets.UTF_8.name());
+    private static void handleCORS(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
     }
 
-    /**
-     * Send a JSON response with CORS headers.
-     */
-    private static void sendJson(HttpExchange exchange, int status, String body) throws IOException {
-        byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
-        exchange.getResponseHeaders().set("Content-Type", "application/json; charset=UTF-8");
-        setCorsHeaders(exchange);
-        exchange.sendResponseHeaders(status, bytes.length);
+    private static void sendResponse(HttpExchange exchange, int statusCode, String response) throws IOException {
+        exchange.getResponseHeaders().set("Content-Type", "application/json");
+        byte[] bytes = response.getBytes(StandardCharsets.UTF_8);
+        exchange.sendResponseHeaders(statusCode, bytes.length);
         OutputStream os = exchange.getResponseBody();
         os.write(bytes);
         os.close();
-    }
-
-    /**
-     * Set standard CORS headers on the response.
-     */
-    private static void setCorsHeaders(HttpExchange exchange) {
-        exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
-        exchange.getResponseHeaders().set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-        exchange.getResponseHeaders().set("Access-Control-Allow-Headers", "Content-Type, Authorization");
-    }
-
-    /**
-     * Send a simple error message as JSON.
-     */
-    private static void sendError(HttpExchange exchange, int status, String message) throws IOException {
-        sendJson(exchange, status, "{\"error\":\"" + message + "\"}");
-    }
-
-    /**
-     * Handler for /api/students — supports GET, POST, PUT, DELETE, OPTIONS.
-     */
-    static class StudentHandler implements HttpHandler {
-        @Override
-        public void handle(HttpExchange exchange) throws IOException {
-            String method = exchange.getRequestMethod();
-            try {
-                switch (method) {
-                    case "OPTIONS":
-                        handleOptions(exchange);
-                        break;
-                    case "GET":
-                        handleGet(exchange);
-                        break;
-                    case "POST":
-                        handlePost(exchange);
-                        break;
-                    case "PUT":
-                        handlePut(exchange);
-                        break;
-                    case "DELETE":
-                        handleDelete(exchange);
-                        break;
-                    default:
-                        sendError(exchange, 405, "Method Not Allowed");
-                }
-            } catch (Exception e) {
-                e.printStackTrace();
-                sendError(exchange, 500, "Internal Server Error");
-            }
-        }
-
-        private void handleOptions(HttpExchange exchange) throws IOException {
-            setCorsHeaders(exchange);
-            exchange.sendResponseHeaders(204, -1);
-            exchange.getResponseBody().close();
-        }
-
-        private void handleGet(HttpExchange exchange) throws IOException {
-            Integer id = parseIdFromQuery(exchange.getRequestURI());
-            if (id != null) {
-                Student s = store.get(id);
-                if (s == null) {
-                    sendError(exchange, 404, "Student not found");
-                } else {
-                    sendJson(exchange, 200, s.toJson());
-                }
-            } else {
-                sendJson(exchange, 200, allStudentsJson());
-            }
-        }
-
-        private void handlePost(HttpExchange exchange) throws IOException {
-            String body = readBody(exchange);
-            if (body.isEmpty()) {
-                sendError(exchange, 400, "Request body is empty");
-                return;
-            }
-            Student s = Student.fromJson(body);
-            if (s.getName() == null || s.getName().isEmpty()) {
-                sendError(exchange, 400, "Name is required");
-                return;
-            }
-            Student created = addStudent(s);
-            sendJson(exchange, 201, created.toJson());
-        }
-
-        private void handlePut(HttpExchange exchange) throws IOException {
-            Integer id = parseIdFromQuery(exchange.getRequestURI());
-            if (id == null) {
-                sendError(exchange, 400, "Missing id query parameter");
-                return;
-            }
-            Student existing = store.get(id);
-            if (existing == null) {
-                sendError(exchange, 404, "Student not found");
-                return;
-            }
-            String body = readBody(exchange);
-            if (body.isEmpty()) {
-                sendError(exchange, 400, "Request body is empty");
-                return;
-            }
-            Student updated = Student.fromJson(body);
-            updated.setId(id);
-            store.put(id, updated);
-            sendJson(exchange, 200, updated.toJson());
-        }
-
-        private void handleDelete(HttpExchange exchange) throws IOException {
-            Integer id = parseIdFromQuery(exchange.getRequestURI());
-            if (id == null) {
-                sendError(exchange, 400, "Missing id query parameter");
-                return;
-            }
-            Student removed = store.remove(id);
-            if (removed == null) {
-                sendError(exchange, 404, "Student not found");
-                return;
-            }
-            sendJson(exchange, 200, "{\"message\":\"Student deleted\",\"id\":" + id + "}");
-        }
     }
 }
