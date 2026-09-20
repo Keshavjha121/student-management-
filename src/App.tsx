@@ -46,11 +46,38 @@ export default function App() {
     attendance: '',
     email: '',
     phone: '',
-    address: ''
+    address: '',
+    // Subject marks (5 subjects per dept)
+    subjectMarks: [
+      { subject: '', internal: '', external: '' },
+      { subject: '', internal: '', external: '' },
+      { subject: '', internal: '', external: '' },
+      { subject: '', internal: '', external: '' },
+      { subject: '', internal: '', external: '' },
+    ],
+    // Assignments (4 assignments)
+    assignments: [
+      { title: '', status: 'Submitted', marks: '', submissionDate: '' },
+      { title: '', status: 'Submitted', marks: '', submissionDate: '' },
+      { title: '', status: 'Submitted', marks: '', submissionDate: '' },
+      { title: '', status: 'Submitted', marks: '', submissionDate: '' },
+    ],
   });
 
   // Dataset manager custom uploaded dataset state
   const [uploadedDatasetName, setUploadedDatasetName] = useState('students.json');
+
+  const getDefaultSubjects = (dept: string) => {
+    const subjectsMap: Record<string, string[]> = {
+      'CSE': ['Database Management', 'Operating Systems', 'Computer Networks', 'Design & Analysis of Algorithms', 'Cloud Computing'],
+      'ECE': ['Digital Signal Processing', 'VLSI Design', 'Microcontrollers', 'Analog Communication', 'Embedded Systems'],
+      'ISE': ['Information Security', 'Software Engineering', 'Big Data Analytics', 'Web Architecture', 'Machine Learning'],
+      'EEE': ['Power Electronics', 'Control Systems', 'Electric Drives', 'Renewable Energy', 'High Voltage Engg'],
+      'Architecture': ['Architectural Design', 'Building Construction', 'History of Architecture', 'Structural Mechanics', 'Urban Planning'],
+      'Mechanical': ['Thermodynamics', 'Fluid Mechanics', 'Kinematics of Machines', 'Manufacturing Tech', 'CAD/CAM']
+    };
+    return subjectsMap[dept] || subjectsMap['CSE'];
+  };
 
   // Format and assign real unique values to all students
   const initialStudents = useMemo(() => {
@@ -101,6 +128,20 @@ export default function App() {
     }
   }, [students]);
 
+  React.useEffect(() => {
+    if (isAddModalOpen) {
+      const subjects = getDefaultSubjects(newStudentForm.dept);
+      setNewStudentForm(prev => ({
+        ...prev,
+        subjectMarks: subjects.map((sub, i) => ({
+          subject: sub,
+          internal: prev.subjectMarks[i]?.internal || '',
+          external: prev.subjectMarks[i]?.external || '',
+        }))
+      }));
+    }
+  }, [newStudentForm.dept, isAddModalOpen]);
+
   // Dynamic calculations across dataset
   const totalCount = students.length;
   const avgAttendance = totalCount > 0 
@@ -116,6 +157,9 @@ export default function App() {
   const getStudentAcademics = (stId: string) => {
     const student = students.find(s => s.id === stId);
     if (!student) return null;
+    if (student.isManual && (student as any).manualAcademics?.length > 0) {
+      return { empty: false, student, records: (student as any).manualAcademics };
+    }
     if (student.isManual && student.cgpa === 0) return { empty: true, student };
 
     const seed = getStudentSeed(stId);
@@ -196,6 +240,9 @@ export default function App() {
   const getStudentAssignments = (stId: string) => {
     const student = students.find(s => s.id === stId);
     if (!student) return null;
+    if (student.isManual && (student as any).manualAssignments?.length > 0) {
+      return { empty: false, student, assignments: (student as any).manualAssignments };
+    }
     if (student.isManual && student.cgpa === 0) return { empty: true, student };
 
     const seed = getStudentSeed(stId);
@@ -289,7 +336,35 @@ export default function App() {
       email: newStudentForm.email || `${newStudentForm.name.toLowerCase().replace(/\s+/g, '')}@institution.edu`,
       phone: newStudentForm.phone || '+91 9876543210',
       address: newStudentForm.address || 'Campus Hostel',
-      isManual: true
+      isManual: true,
+      manualAcademics: newStudentForm.subjectMarks.filter(s => s.subject.trim()).map(s => {
+        const internal = parseInt(s.internal) || 0;
+        const external = parseInt(s.external) || 0;
+        const total = internal + external;
+        let grade = 'B';
+        if (total >= 90) grade = 'O';
+        else if (total >= 80) grade = 'A+';
+        else if (total >= 70) grade = 'A';
+        else if (total >= 60) grade = 'B+';
+        else if (total >= 50) grade = 'B';
+        else grade = 'RA';
+        return {
+          subject: s.subject,
+          internal,
+          external,
+          total,
+          grade,
+          status: total >= 50 ? 'Pass' : 'Backlog'
+        };
+      }),
+      manualAssignments: newStudentForm.assignments.filter(a => a.title.trim()).map((a, i) => ({
+        id: `ASG-${i + 1}`,
+        title: a.title,
+        status: a.status,
+        submissionDate: a.submissionDate || '-',
+        marks: a.status === 'Pending' ? '-' : `${parseInt(a.marks) || 0} / 25`,
+        grade: a.status === 'Pending' ? '-' : ((parseInt(a.marks) || 0) >= 22 ? 'O' : (parseInt(a.marks) || 0) >= 18 ? 'A' : 'B')
+      })),
     };
 
     setStudents([newStudentObj, ...students]);
@@ -302,7 +377,20 @@ export default function App() {
       attendance: '',
       email: '',
       phone: '',
-      address: ''
+      address: '',
+      subjectMarks: [
+        { subject: '', internal: '', external: '' },
+        { subject: '', internal: '', external: '' },
+        { subject: '', internal: '', external: '' },
+        { subject: '', internal: '', external: '' },
+        { subject: '', internal: '', external: '' },
+      ],
+      assignments: [
+        { title: '', status: 'Submitted', marks: '', submissionDate: '' },
+        { title: '', status: 'Submitted', marks: '', submissionDate: '' },
+        { title: '', status: 'Submitted', marks: '', submissionDate: '' },
+        { title: '', status: 'Submitted', marks: '', submissionDate: '' },
+      ],
     });
     alert(`Student ${newStudentObj.name} added successfully with ID: ${newId}`);
   };
@@ -944,15 +1032,19 @@ export default function App() {
                       <div className="grid grid-cols-7 gap-2 text-center text-xs">
                         {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => <div key={d} className="font-bold text-slate-400">{d}</div>)}
                         {Array.from({ length: 28 }).map((_, idx) => {
+                          const dayOfWeek = idx % 7; // 0=Mon, 1=Tue, ..., 6=Sun
+                          const isSunday = dayOfWeek === 6;
                           const seed = getStudentSeed(data.student.id);
-                          const isAbsent = ((seed + idx) % 5 === 0) && data.student.attendance < 85;
+                          const isAbsent = !isSunday && ((seed + idx) % 5 === 0) && data.student.attendance < 85;
                           return (
                             <div key={idx} className={`p-2.5 rounded-lg border text-xs font-semibold ${
-                              isAbsent 
-                                ? 'bg-rose-500/20 border-rose-500/30 text-rose-300' 
-                                : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-300'
+                              isSunday
+                                ? 'bg-yellow-500/20 border-yellow-500/30 text-yellow-300'
+                                : isAbsent 
+                                  ? 'bg-rose-500/20 border-rose-500/30 text-rose-300' 
+                                  : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-300'
                             }`}>
-                              Day {idx + 1}
+                              {isSunday ? '🏖 Holiday' : `Day ${idx + 1}`}
                             </div>
                           );
                         })}
@@ -1129,7 +1221,7 @@ export default function App() {
       {/* 3. ADD STUDENT MODAL FORM */}
       {isAddModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className={`w-full max-w-lg rounded-2xl border p-6 shadow-2xl ${darkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-800'}`}>
+          <div className={`w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-2xl border p-6 shadow-2xl ${darkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-800'}`}>
             <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-800">
               <h3 className="font-bold text-base">Add New Student</h3>
               <button onClick={() => setIsAddModalOpen(false)} className="text-slate-400 hover:text-white">
@@ -1137,81 +1229,189 @@ export default function App() {
               </button>
             </div>
 
-            <form onSubmit={handleAddStudentSubmit} className="space-y-3 text-xs">
+            <form onSubmit={handleAddStudentSubmit} className="space-y-5 text-xs">
+              {/* Basic Info */}
               <div>
-                <label className="block text-slate-400 mb-1">Student Full Name *</label>
-                <input 
-                  type="text" 
-                  required
-                  placeholder="e.g. Donna Hensley" 
-                  className={`w-full px-3 py-2 rounded-xl border outline-none ${darkMode ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}
-                  value={newStudentForm.name}
-                  onChange={(e) => setNewStudentForm({ ...newStudentForm, name: e.target.value })}
-                />
+                <h4 className="font-bold text-sm mb-3 text-indigo-400">📋 Basic Information</h4>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-slate-400 mb-1">Student Full Name *</label>
+                    <input 
+                      type="text" 
+                      required
+                      placeholder="e.g. Keshav Jha" 
+                      className={`w-full px-3 py-2 rounded-xl border outline-none ${darkMode ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}
+                      value={newStudentForm.name}
+                      onChange={(e) => setNewStudentForm({ ...newStudentForm, name: e.target.value })}
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-slate-400 mb-1">Department</label>
+                      <select 
+                        className={`w-full px-3 py-2 rounded-xl border outline-none ${darkMode ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}
+                        value={newStudentForm.dept}
+                        onChange={(e) => setNewStudentForm({ ...newStudentForm, dept: e.target.value })}
+                      >
+                        <option value="CSE">CSE</option>
+                        <option value="ECE">ECE</option>
+                        <option value="ISE">ISE</option>
+                        <option value="EEE">EEE</option>
+                        <option value="Architecture">Architecture</option>
+                        <option value="Mechanical">Mechanical</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-slate-400 mb-1">Semester</label>
+                      <input 
+                        type="number" min="1" max="8" 
+                        className={`w-full px-3 py-2 rounded-xl border outline-none ${darkMode ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}
+                        value={newStudentForm.sem}
+                        onChange={(e) => setNewStudentForm({ ...newStudentForm, sem: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-slate-400 mb-1">Initial CGPA</label>
+                      <input 
+                        type="number" step="0.01" placeholder="e.g. 8.2"
+                        className={`w-full px-3 py-2 rounded-xl border outline-none ${darkMode ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}
+                        value={newStudentForm.cgpa}
+                        onChange={(e) => setNewStudentForm({ ...newStudentForm, cgpa: e.target.value })}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-slate-400 mb-1">Attendance %</label>
+                      <input 
+                        type="number" placeholder="e.g. 85"
+                        className={`w-full px-3 py-2 rounded-xl border outline-none ${darkMode ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}
+                        value={newStudentForm.attendance}
+                        onChange={(e) => setNewStudentForm({ ...newStudentForm, attendance: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 mb-1">Email Address</label>
+                    <input 
+                      type="email" placeholder="student@institution.edu"
+                      className={`w-full px-3 py-2 rounded-xl border outline-none ${darkMode ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}
+                      value={newStudentForm.email}
+                      onChange={(e) => setNewStudentForm({ ...newStudentForm, email: e.target.value })}
+                    />
+                  </div>
+                </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-slate-400 mb-1">Department</label>
-                  <select 
-                    className={`w-full px-3 py-2 rounded-xl border outline-none ${darkMode ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}
-                    value={newStudentForm.dept}
-                    onChange={(e) => setNewStudentForm({ ...newStudentForm, dept: e.target.value })}
-                  >
-                    <option value="CSE">CSE</option>
-                    <option value="ECE">ECE</option>
-                    <option value="ISE">ISE</option>
-                    <option value="EEE">EEE</option>
-                    <option value="Architecture">Architecture</option>
-                    <option value="Mechanical">Mechanical</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-slate-400 mb-1">Semester</label>
-                  <input 
-                    type="number" 
-                    min="1" 
-                    max="8" 
-                    className={`w-full px-3 py-2 rounded-xl border outline-none ${darkMode ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}
-                    value={newStudentForm.sem}
-                    onChange={(e) => setNewStudentForm({ ...newStudentForm, sem: e.target.value })}
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-slate-400 mb-1">Initial CGPA (Leave empty if none)</label>
-                  <input 
-                    type="number" 
-                    step="0.01" 
-                    placeholder="e.g. 8.2"
-                    className={`w-full px-3 py-2 rounded-xl border outline-none ${darkMode ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}
-                    value={newStudentForm.cgpa}
-                    onChange={(e) => setNewStudentForm({ ...newStudentForm, cgpa: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-400 mb-1">Initial Attendance % (Optional)</label>
-                  <input 
-                    type="number" 
-                    placeholder="e.g. 85"
-                    className={`w-full px-3 py-2 rounded-xl border outline-none ${darkMode ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}
-                    value={newStudentForm.attendance}
-                    onChange={(e) => setNewStudentForm({ ...newStudentForm, attendance: e.target.value })}
-                  />
+              {/* Academic & Semester Grade Card */}
+              <div className={`p-4 rounded-xl border ${darkMode ? 'border-slate-800 bg-slate-950/40' : 'border-slate-200 bg-slate-50'}`}>
+                <h4 className="font-bold text-sm mb-3 text-indigo-400">🎓 Academic & Semester Grade Card</h4>
+                <p className="text-[11px] text-slate-400 mb-3">Enter internal (max 30) and external (max 70) marks for each subject</p>
+                <div className="space-y-2">
+                  {newStudentForm.subjectMarks.map((sm, idx) => (
+                    <div key={idx} className="grid grid-cols-12 gap-2 items-center">
+                      <div className="col-span-6">
+                        <input 
+                          type="text" 
+                          placeholder="Subject Name"
+                          className={`w-full px-2 py-1.5 rounded-lg border outline-none text-xs ${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-300'}`}
+                          value={sm.subject}
+                          onChange={(e) => {
+                            const updated = [...newStudentForm.subjectMarks];
+                            updated[idx] = { ...updated[idx], subject: e.target.value };
+                            setNewStudentForm({ ...newStudentForm, subjectMarks: updated });
+                          }}
+                        />
+                      </div>
+                      <div className="col-span-3">
+                        <input 
+                          type="number" min="0" max="30"
+                          placeholder="Internal (30)"
+                          className={`w-full px-2 py-1.5 rounded-lg border outline-none text-xs ${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-300'}`}
+                          value={sm.internal}
+                          onChange={(e) => {
+                            const updated = [...newStudentForm.subjectMarks];
+                            updated[idx] = { ...updated[idx], internal: e.target.value };
+                            setNewStudentForm({ ...newStudentForm, subjectMarks: updated });
+                          }}
+                        />
+                      </div>
+                      <div className="col-span-3">
+                        <input 
+                          type="number" min="0" max="70"
+                          placeholder="External (70)"
+                          className={`w-full px-2 py-1.5 rounded-lg border outline-none text-xs ${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-300'}`}
+                          value={sm.external}
+                          onChange={(e) => {
+                            const updated = [...newStudentForm.subjectMarks];
+                            updated[idx] = { ...updated[idx], external: e.target.value };
+                            setNewStudentForm({ ...newStudentForm, subjectMarks: updated });
+                          }}
+                        />
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
 
-              <div>
-                <label className="block text-slate-400 mb-1">Email Address</label>
-                <input 
-                  type="email" 
-                  placeholder="student@institution.edu"
-                  className={`w-full px-3 py-2 rounded-xl border outline-none ${darkMode ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}
-                  value={newStudentForm.email}
-                  onChange={(e) => setNewStudentForm({ ...newStudentForm, email: e.target.value })}
-                />
+              {/* Coursework Assignments & Submissions */}
+              <div className={`p-4 rounded-xl border ${darkMode ? 'border-slate-800 bg-slate-950/40' : 'border-slate-200 bg-slate-50'}`}>
+                <h4 className="font-bold text-sm mb-3 text-indigo-400">📝 Coursework Assignments & Submissions</h4>
+                <p className="text-[11px] text-slate-400 mb-3">Enter assignment task titles, status, marks (out of 25), and submission date</p>
+                <div className="space-y-3">
+                  {newStudentForm.assignments.map((asg, idx) => (
+                    <div key={idx} className={`p-3 rounded-lg border ${darkMode ? 'border-slate-700 bg-slate-900/60' : 'border-slate-300 bg-white'}`}>
+                      <p className="text-[10px] text-slate-500 mb-2 font-bold">Assignment {idx + 1}</p>
+                      <div className="grid grid-cols-2 gap-2">
+                        <input 
+                          type="text" 
+                          placeholder="Task Title"
+                          className={`px-2 py-1.5 rounded-lg border outline-none text-xs ${darkMode ? 'bg-slate-950 border-slate-700' : 'bg-slate-50 border-slate-300'}`}
+                          value={asg.title}
+                          onChange={(e) => {
+                            const updated = [...newStudentForm.assignments];
+                            updated[idx] = { ...updated[idx], title: e.target.value };
+                            setNewStudentForm({ ...newStudentForm, assignments: updated });
+                          }}
+                        />
+                        <select
+                          className={`px-2 py-1.5 rounded-lg border outline-none text-xs ${darkMode ? 'bg-slate-950 border-slate-700' : 'bg-slate-50 border-slate-300'}`}
+                          value={asg.status}
+                          onChange={(e) => {
+                            const updated = [...newStudentForm.assignments];
+                            updated[idx] = { ...updated[idx], status: e.target.value };
+                            setNewStudentForm({ ...newStudentForm, assignments: updated });
+                          }}
+                        >
+                          <option value="Submitted">Submitted</option>
+                          <option value="Late Submission">Late Submission</option>
+                          <option value="Pending">Pending</option>
+                        </select>
+                        <input 
+                          type="number" min="0" max="25"
+                          placeholder="Marks (out of 25)"
+                          className={`px-2 py-1.5 rounded-lg border outline-none text-xs ${darkMode ? 'bg-slate-950 border-slate-700' : 'bg-slate-50 border-slate-300'}`}
+                          value={asg.marks}
+                          onChange={(e) => {
+                            const updated = [...newStudentForm.assignments];
+                            updated[idx] = { ...updated[idx], marks: e.target.value };
+                            setNewStudentForm({ ...newStudentForm, assignments: updated });
+                          }}
+                        />
+                        <input 
+                          type="date"
+                          className={`px-2 py-1.5 rounded-lg border outline-none text-xs ${darkMode ? 'bg-slate-950 border-slate-700' : 'bg-slate-50 border-slate-300'}`}
+                          value={asg.submissionDate}
+                          onChange={(e) => {
+                            const updated = [...newStudentForm.assignments];
+                            updated[idx] = { ...updated[idx], submissionDate: e.target.value };
+                            setNewStudentForm({ ...newStudentForm, assignments: updated });
+                          }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
 
               <div className="flex justify-end gap-2 pt-4">
